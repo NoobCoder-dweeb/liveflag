@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: liveflag-postgres
+    environment:
+      - POSTGRES_USER=liveflag
+      - POSTGRES_PASSWORD=liveflag
+      - POSTGRES_DB=liveflag
+    ports:
+      - "5432:5432"
+    volumes:
+      - liveflag_pg_data:/var/lib/postgresql/data
+
+volumes:
+  liveflag_pg_data:
