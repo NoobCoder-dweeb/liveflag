@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import dotenv from "dotenv";
 
 import { initDb } from "./init-db.js";
+import { flagRoutes } from "./routes/flags.js";
 
 dotenv.config()
 
@@ -24,6 +25,9 @@ const start = async ()=> {
     
     const port = Number(process.env.PORT ?? 3000);
     
+    // register routes
+    await app.register(flagRoutes);
+
     await app.listen({
         port,
         host: "0.0.0.0"
