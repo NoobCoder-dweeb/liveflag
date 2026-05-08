@@ -1,4 +1,4 @@
-import {FastifyInstance} from "fastify";
+import { FastifyInstance } from "fastify";
 import sql from "../db.js";
 import { request } from "node:http";
 
@@ -29,6 +29,8 @@ export async function flagRoutes(app: FastifyInstance) {
             FROM flags
             ORDER BY created_at DESC
         `;
+
+        return flags;
     });
 
     app.patch("/flags/:key/toggle", async (request, reply) => {
@@ -36,20 +38,48 @@ export async function flagRoutes(app: FastifyInstance) {
             key: string;
         };
 
-        const result = await sql`
+        const existing = await sql`
+            SELECT * 
+            FROM flags
+            WHERE key = ${params.key}
+            LIMIT 1 
+        `;
+
+        if (existing.length === 0){
+            return reply.status(404).send({
+                error: "Flag not found",
+            });
+        }
+
+        const oldValue = existing[0].enabled;
+        const newValue = !oldValue;
+
+        const updated = await sql`
             UPDATE flags
-            SET enabled = NOT enabled
+            SET enabled = ${newValue}
             WHERE key = ${params.key}
             RETURNING *
         `;
 
-        if (result.length === 0){
-            return reply.status(404).send({
-                error: "Flag not found",
-            });
-        } 
 
-        return result[0];
+        await sql`
+            INSERT INTO audit_logs (
+                flag_key,
+                action,
+                old_value,
+                new_value,
+                changed_by
+            )
+            VALUES (
+                ${params.key},
+                'toggle',
+                ${oldValue},
+                ${newValue},
+                'syste,'
+            )
+        `;
+
+        return updated[0];
     });
 
     app.get("/evaluate/:key", async (request, reply) => {
@@ -69,7 +99,7 @@ export async function flagRoutes(app: FastifyInstance) {
             LIMIT 1
         `;
 
-        if (result.length === 0){
+        if (result.length === 0) {
             return reply.status(404).send({
                 key: params.key,
                 enabled: false,
@@ -83,5 +113,15 @@ export async function flagRoutes(app: FastifyInstance) {
             environment: result[0].environment,
             reason: result[0].enabled ? "Flag is enabled" : "Flag is disabled",
         };
-    }); 
+    });
+
+    app.get("/audit-logs", async () => {
+        const logs = await sql`
+            SELECT * 
+            FROM audit_logs
+            ORDER BY created_at DESC
+        `;
+
+        return logs;
+    });
 }
