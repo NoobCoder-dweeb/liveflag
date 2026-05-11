@@ -1,6 +1,15 @@
 import { FastifyInstance } from "fastify";
 import sql from "../db.js";
-import { request } from "node:http";
+
+function getBucket(input: string): number {
+    let hash = 0;
+
+    for (let i = 0; i < input.length; i++) {
+        hash = (hash * 31 + input.charCodeAt(i) | 0);
+    }
+
+    return Math.abs(hash) % 100;
+}
 
 export async function flagRoutes(app: FastifyInstance) {
     app.post("/flags", async (request, reply) => {
@@ -8,14 +17,16 @@ export async function flagRoutes(app: FastifyInstance) {
             key: string;
             description?: string;
             environment?: string;
+            rolloutPercentage?: number;
         };
 
         const result = await sql`
-            INSERT INTO flags (key, description, environment)
+            INSERT INTO flags (key, description, environment, rollout_percentage)
             VALUES (
             ${body.key}, 
             ${body.description ?? null},
-            ${body.environment ?? "dev"}
+            ${body.environment ?? "dev"},
+            ${body.rolloutPercentage ?? 100}
             )
             RETURNING *
         `;
@@ -45,7 +56,7 @@ export async function flagRoutes(app: FastifyInstance) {
             LIMIT 1 
         `;
 
-        if (existing.length === 0){
+        if (existing.length === 0) {
             return reply.status(404).send({
                 error: "Flag not found",
             });
@@ -89,6 +100,7 @@ export async function flagRoutes(app: FastifyInstance) {
 
         const query = request.query as {
             environment?: string;
+            userId?: string;
         };
 
         const result = await sql`
@@ -107,11 +119,40 @@ export async function flagRoutes(app: FastifyInstance) {
             });
         }
 
+        const flag = result[0];
+
+        if (!flag.enabled) {
+            return {
+                key: flag.key,
+                enabled: false,
+                environment: flag.environment,
+                reason: "Flag is disabled",
+            };
+        }
+
+        const rolloutPercentage = flag.rolloutPercentage ?? 100;
+
+        if (!query.userId) {
+            return {
+                key: flag.key,
+                enabled: rolloutPercentage > 0,
+                environment: flag.environment,
+                rolloutPercentage,
+                reason: "No userId provided",
+            };
+        }
+
+        const bucket = getBucket(`${flag.key}:${query.userId}`);
+        const enabled = bucket < rolloutPercentage;
+
         return {
-            key: result[0].key,
-            enabled: result[0].enabled,
-            environment: result[0].environment,
-            reason: result[0].enabled ? "Flag is enabled" : "Flag is disabled",
+            key: flag.key,
+            enabled,
+            environment: flag.environment,
+            rolloutPercentage,
+            userId: query.userId,
+            bucket,
+            reason: enabled ? "User is included in rollout" : "User is outside rollout",
         };
     });
 
