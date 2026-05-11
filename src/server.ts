@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 
 import { initDb } from "./init-db.js";
 import { flagRoutes } from "./routes/flags.js";
+import { registerErrorHandler } from "./plugins/error-handler.js";
 
 dotenv.config()
 
@@ -12,8 +13,9 @@ const start = async ()=> {
         logger: true
     });
     
+    await registerErrorHandler(app);
     await app.register(cors);
-
+    
     await initDb();
     
     app.get("/health", async () => {
@@ -32,6 +34,7 @@ const start = async ()=> {
         port,
         host: "0.0.0.0"
     });
+
 };
 
 start();

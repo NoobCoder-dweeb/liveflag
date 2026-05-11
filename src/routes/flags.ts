@@ -1,7 +1,18 @@
 import { FastifyInstance } from "fastify";
 import sql from "../db.js";
+import { getBucket } from "../utils/rollout.js";
 
-function getBucket(input: string): number {
+// Validate incoming request bodies safely with zod
+import { z } from "zod";
+
+const createFlagSchema = z.object({
+    key: z.string().min(1),
+    description: z.string().optional(),
+    environment: z.string().default("dev"),
+    rolloutPercentage: z.number().min(0).max(100).default(100),
+});
+
+/* function getBucket(input: string): number {
     let hash = 0;
 
     for (let i = 0; i < input.length; i++) {
@@ -9,16 +20,12 @@ function getBucket(input: string): number {
     }
 
     return Math.abs(hash) % 100;
-}
+} */
 
 export async function flagRoutes(app: FastifyInstance) {
     app.post("/flags", async (request, reply) => {
-        const body = request.body as {
-            key: string;
-            description?: string;
-            environment?: string;
-            rolloutPercentage?: number;
-        };
+        // parse and validate request body
+        const body = createFlagSchema.parse(request.body);
 
         const result = await sql`
             INSERT INTO flags (key, description, environment, rollout_percentage)
@@ -111,10 +118,15 @@ export async function flagRoutes(app: FastifyInstance) {
             LIMIT 1
         `;
 
+        let success = true;
+
         if (result.length === 0) {
             return reply.status(404).send({
                 key: params.key,
-                enabled: false,
+                success: !success,
+                data: {
+                    enabled: false,
+                },
                 reason: "Flag not found",
             });
         }
@@ -124,9 +136,12 @@ export async function flagRoutes(app: FastifyInstance) {
         if (!flag.enabled) {
             return {
                 key: flag.key,
-                enabled: false,
                 environment: flag.environment,
                 reason: "Flag is disabled",
+                success: !success,
+                data: {
+                    enabled: false,
+                },
             };
         }
 
@@ -135,7 +150,10 @@ export async function flagRoutes(app: FastifyInstance) {
         if (!query.userId) {
             return {
                 key: flag.key,
-                enabled: rolloutPercentage > 0,
+                success: !success,
+                data: {
+                    enabled: rolloutPercentage > 0,
+                },
                 environment: flag.environment,
                 rolloutPercentage,
                 reason: "No userId provided",
@@ -147,7 +165,10 @@ export async function flagRoutes(app: FastifyInstance) {
 
         return {
             key: flag.key,
-            enabled,
+            success: success,
+            data: {
+                enabled,
+            },
             environment: flag.environment,
             rolloutPercentage,
             userId: query.userId,
